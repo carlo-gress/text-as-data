@@ -26,6 +26,16 @@ similar_words("carbon", word_matrix) %>% head()
 
 
 
+new_matrix <- word_matrix[c("dog","fork","fossil", "concrete", "laptop"),]
+new_matrix <- cosine(t(new_matrix))
+new_matrix
+
+
+
+
+
+
+
 diff <- word_matrix["paris",]  - word_matrix["france",] 
 vec_d <- word_matrix["berlin",] - diff
 sims <- apply(word_matrix, 1, function(x) cosine(x,vec_d))

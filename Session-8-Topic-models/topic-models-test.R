@@ -39,7 +39,7 @@ error
 
 library(readr)
 library(dplyr)
-df <- read_csv("datasets/hertie_papers.csv")
+df <- read_csv("hertie_papers.csv")
 df <- df %>% filter(!is.na(abstract)) %>%
   distinct(abstract, .keep_all = TRUE)
 

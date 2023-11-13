@@ -1,7 +1,7 @@
 pacman::p_load("quanteda","lexicon","dplyr","ggplot2","tidyr","quanteda.textstats","ggrepel")
 
 # Read in the data
-df <- readr::read_csv("datasets/hertie_papers.csv")
+df <- readr::read_csv("hertie_papers.csv")
 head(df,3)
 
 # Summarise and plot by year
@@ -106,3 +106,34 @@ p + geom_label_repel(
   aes(label=feature), 
   min.segment.length = 0
 )
+
+
+
+
+# In class 
+
+authors <- readr::read_csv("hertie_authors.csv")
+head(df,3)
+
+author_counts <- authors %>%
+  filter(institution_display_name == "Hertie School") %>% 
+  group_by(author_display_name) %>%
+  summarise(PaperCount = n()) %>%
+  arrange(desc(PaperCount))
+
+top_authors <- head(author_counts, 10)
+
+top_authors %>% 
+  arrange(desc(PaperCount)) %>% 
+  ggplot(aes(x = reorder(author_display_name, PaperCount), y = PaperCount)) +
+  geom_bar(stat = "identity", fill = "black") +
+  labs(title = "Top 10 Hertie Authors with Most Papers",
+       x = "Number of Papers",
+       y = "Author") +
+  theme_bw() +
+  coord_flip()
+
+
+
+
+

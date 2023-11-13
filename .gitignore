@@ -24,3 +24,5 @@ Session-6-Distance-and-Dimensionality-Reduction/data/*
 datasets/*
 Session-11-Spacy-and-Transformers/out/*
 Session-11-Spacy-and-Transformers/tmp_trainer/*
+Session-7-Embeddings/embeddings/glove6b/glove.6B.zip
+Session-7-Embeddings/embeddings/glove6b/glove_6b_100.rds

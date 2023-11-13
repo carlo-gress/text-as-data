@@ -1,0 +1,57 @@
+---
+title: "Assignment 4 - Topic Modelling"
+author: "Carlo Greß"
+date: "2023-11-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 0. Dependencies 
+
+```{r}
+
+library(tidyverse)
+library(quanteda)
+library(manifestoR)
+```
+
+# 1. Data acquisition, description, and preparation
+
+Loading the data. I chose to work with the programs of all German parties that have been part of the German Bundestag after the Federal election 1998. In 1998, and after 16 years, the governing coalition switched from a conservative-liberal (CDU/CSU and FDP) to an progressive social democratic/green government (SPD/Grüne). My goal is to identify whether programmatic similarities from the respective manifestos of SPD and Grüne could potentially have predicted these transitions. 
+
+I am directly accessing the API and loading the corpus by restricting the country to Germany and setting the time span accordingly. As a result, only the manifestos pubslished prior to the the 1998 and 2002 Federal Elections are considered. 
+
+Printing the my_corpus document already reveals that we are dealing with 10 distinct documents (here: 10 distinct party manifestos). This intuitively makes sense, since there are five different parties that have been elected to the German Bundestag in 1998, and we are looking at two distinct elections, so there are two manifestos per party (== 10 in total).
+```{r}
+mp_setapikey("manifesto_apikey.txt")
+
+my_corpus <- mp_corpus(countryname == "Germany" & edate > as.Date("1998-01-01") & edate < as.Date("2003-01-01"))
+
+my_corpus
+```
+
+Let's double-check what parties and years are considered in our corpus: As we can see from the output, we indeed have five distinct parties (represented by party codes) and two uniqe points in time. The time codes are easily interpretable: All document are either from September 1998 or September 2002. Since Federal Elections usually take place in September and we want to analyse exaclty the elections in the given years, this seems appropriate. 
+```{r}
+unique(meta(my_corpus, "date"))
+party_id <- unique(meta(my_corpus, "party"))
+```
+
+```{r}
+party_names <- mp_settings("partyname", party_id)
+```
+
+Next, I already I am already transforming the preliminary corpus into a format that the `quanteda`-package can easily use. I am keeping all the meta information since we want to make conclusions based on distinct years and parties later on. 
+
+```{r}
+quanteda_corpus <- my_corpus %>%
+  as.data.frame(with.meta = TRUE) %>%
+  corpus(docid_field = "manifesto_id", unique_docnames = FALSE)
+```
+
+# Let's double-check what parties and years are considered in our corpus:
+```{r}
+meta(quanteda_corpus)
+````

@@ -1,7 +1,7 @@
 
 pacman::p_load("quanteda","readr","lexicon","ggplot2","plotly","uwot","tidyr","quanteda.textstats")
 
-df <- read_csv("Session-6-Distance-and-Dimensionality-Reduction/data/uk_manifestos.csv")
+df <- read_csv("data/uk_manifestos.csv")
 df$id <- as.character(seq(1,length(df$text)))
 
 texts <- c(
@@ -43,3 +43,13 @@ p <- ggplot(df, aes(x, y, colour=party, label=text)) +
   coord_fixed()
 
 ggplotly(p)
+
+
+# In class: 
+  
+corp <- corpus(df)
+dfmat <- corp %>% tokens(remove_punc=TRUE) %>%
+  tokens_remove(pattern=stopwords("en")) %>%
+  dfm() 
+
+embeddings <- umap(as.matrix(dfmat))
