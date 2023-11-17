@@ -5,6 +5,13 @@ date: "2023-11-12"
 output: html_document
 ---
 
+
+```{r}
+german9802 <- mp_availability(countryname == "Germany" & date > 199801 & date < 200301)
+```
+
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -12,19 +19,21 @@ knitr::opts_chunk$set(echo = TRUE)
 # 0. Dependencies 
 
 ```{r}
-
 library(tidyverse)
 library(quanteda)
 library(manifestoR)
+library(readr)
+library(gridExtra)
 ```
 
 # 1. Data acquisition, description, and preparation
 
-Loading the data. I chose to work with the programs of all German parties that have been part of the German Bundestag after the Federal election 1998. In 1998, and after 16 years, the governing coalition switched from a conservative-liberal (CDU/CSU and FDP) to an progressive social democratic/green government (SPD/Grüne). My goal is to identify whether programmatic similarities from the respective manifestos of SPD and Grüne could potentially have predicted these transitions. 
+Loading the data. I chose to work with the programs of all German parties that have been part of the German Bundestag after the Federal election 1998 and 2002. In 1998, and after 16 years, the governing coalition switched from a liberal-conservative (FDP and CDU/CSU) to a social democratic/green government (SPD/Grüne). My goal is to identify whether programmatic similarities from the respective manifestos of SPD and Grüne could potentially have predicted these transitions. 
 
 I am directly accessing the API and loading the corpus by restricting the country to Germany and setting the time span accordingly. As a result, only the manifestos pubslished prior to the the 1998 and 2002 Federal Elections are considered. 
 
-Printing the my_corpus document already reveals that we are dealing with 10 distinct documents (here: 10 distinct party manifestos). This intuitively makes sense, since there are five different parties that have been elected to the German Bundestag in 1998, and we are looking at two distinct elections, so there are two manifestos per party (== 10 in total).
+Printing the my_corpus document already reveals that we are dealing with 10 distinct documents (here: 10 distinct party manifestos). This intuitively makes sense since there are five different parties that have been elected to the German Bundestag in 1998, and we are looking at two distinct elections, so there are two manifestos per party (== 10 in total).
+
 ```{r}
 mp_setapikey("manifesto_apikey.txt")
 
@@ -33,25 +42,266 @@ my_corpus <- mp_corpus(countryname == "Germany" & edate > as.Date("1998-01-01") 
 my_corpus
 ```
 
-Let's double-check what parties and years are considered in our corpus: As we can see from the output, we indeed have five distinct parties (represented by party codes) and two uniqe points in time. The time codes are easily interpretable: All document are either from September 1998 or September 2002. Since Federal Elections usually take place in September and we want to analyse exaclty the elections in the given years, this seems appropriate. 
+Let's double-check what parties and years are considered in our corpus: As we can see from the output, we indeed have five distinct parties (represented by party codes) and two unique points in time. The time codes are easily interpretable: All document are either from September 1998 or September 2002. Since Federal Elections usually take place in September and we want to analyse exaclty the elections in the given years, this seems appropriate. 
 ```{r}
 unique(meta(my_corpus, "date"))
-party_id <- unique(meta(my_corpus, "party"))
+unique(meta(my_corpus, "party"))
 ```
 
+The party codes do not make intuitive sense. Let's store them and then use the larger main data set in order to print the party names (these are by default not included when directly importing single documents via the API, hence we refer to the main data): 
+
 ```{r}
-party_names <- mp_settings("partyname", party_id)
+party_id <- as.numeric(unique(meta(my_corpus, "party")))
+
+main <- mp_maindataset()
+
+main %>% 
+  select(party, partyname) %>% 
+  filter(party %in% party_id) %>% 
+  distinct()
 ```
 
-Next, I already I am already transforming the preliminary corpus into a format that the `quanteda`-package can easily use. I am keeping all the meta information since we want to make conclusions based on distinct years and parties later on. 
+As we can see, five distinct parties are included: The SPD, the FDP, the CDU/CSU, the PDS (now: Die Linke), and Bündnis90/Die Grünen. That matches our expectation!
+
+As a last step before diving deeper into the analysis, let's briefly examine how many quasi-sentences there are in each of the 10 manifestos. For this purpose, I am looping over the whole my_corpus object, assign the number of lines to num_lines, and printing the result.  
+```{r}
+for (i in seq_along(my_corpus)) {
+  doc <- my_corpus[[i]]
+  num_lines <- length(unlist(strsplit(as.character(doc), "\n")))
+  cat("Manifesto", i, "consists of", num_lines, "quasi-sentences\n")
+}
+```
+As we can see, the length of the 10 manifestos ranges from 596 to 2354 quasi-sentences. In total, the entire corpus contains 14788 quasi-sentences.
+
+Next, I am already transforming the preliminary corpus into a format that the `quanteda`-package can easily use. I am keeping all the meta information since we want to make conclusions based on distinct years and parties later on. I chose to already group by year here, because I couldn't figure out how to group for two variables (year and party) during preprocessing later. Printing the resulting objects reveals that the combined manifestos from 2002 contain more quasi-sentences than in 1998.
 
 ```{r}
+# Each quasi-sentence as document 
 quanteda_corpus <- my_corpus %>%
   as.data.frame(with.meta = TRUE) %>%
-  corpus(docid_field = "manifesto_id", unique_docnames = FALSE)
+  corpus(docid_field = "manifesto_id", unique_docnames = F)
+
+corpus1998 <- quanteda_corpus %>% corpus_subset(date == 199809)
+corpus2002 <- quanteda_corpus %>% corpus_subset(date == 200209)
+
+corpus1998
+corpus2002
 ```
 
-# Let's double-check what parties and years are considered in our corpus:
+Before running the topic models, we will apply some preprocessing to the manifestos in order to draw more meaningful conclusions from the analysis. In the following code chunk, I am removing punctuation, numbers and German stopwords, as well as stemming the whole corpus. Furthermore, I am excluding rare words that appear 5 times max. as well as words that appear often, but do not add meaningful information, as for example the party names.  
+
 ```{r}
-meta(quanteda_corpus)
-````
+preprocessing98 <- corpus1998 %>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "bündnis","fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+  dfm_group(party)
+
+preprocessing98
+
+preprocessing02 <- corpus2002 %>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "bündnis", "fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+  dfm_group(party)
+
+preprocessing02
+```
+
+# 2. Research question
+
+After the preprocessing steps, we can start the modelling part. As already outlined, I am looking at the major German parties prior to the Federal elections 1998 and 2002, with a special emphasis on SPD and Grüne, since these parties won the Federal election 1998 and therefore introduced a change in government after 16 years of a conservative-liberal government. Using a topic modelling approach, I want to evaluate (a) What were the most prevalent topics prior to the elections 1998 and 2005? and (b) Did the SPD and Grüne had a programmatic overlap that could potentially explain their collaboration after 1998?
+
+# 3. Topic model development
+
+In order to answer the previously stated research question, we are using Latent Dirichlet Allocation in order to identify broader topics within the manifestos. After excluding words (tokens) that do not add substantial meaning to the manifestos, the LDA model groups words that appear often in close proximity to each other into topics. We can chose the number of topics that the model should identify (which makes that a hyperparameter). However, including too many topics will result in a less useful output, since quite intuitively, the number of topics a manifesto can include is naturally limited. Depending on the ideological stance and programmatic focal points of a party, the LDA model will identify different topics for different parties. Intuitively, the model might identify topics related to ecological considerations in case of a Green party, and topics centered around social considerations in case of a center-left party. 
+
+For a first overview, I am running the LDA model for both years and try to identify the five most important topics. 
+```{r}
+library(topicmodels) 
+
+lda98 <- LDA(preprocessing98, 5)
+lda02 <- LDA(preprocessing02, 5)
+```
+
+This next chunk prints out the fie most important topics and its corresponding tokens.
+```{r}
+library(tidytext)
+
+topic_words98 <- tidy(lda98, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+
+topic_words98
+
+topic_words02 <- tidy(lda02, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+
+topic_words02
+```
+For a more intuitive visualization, the next plot shos the tokens of the mos prevalent five topics for both years and including all manifestos. 
+```{r}
+topic_plot98 <- topic_words98 %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() + 
+  labs(title = "Topics in all Manifestos 1998") +
+  theme_bw()
+
+topic_plot02 <- topic_words02 %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() + 
+  labs(title = "Topics in all Manifestos 2002") +
+  theme_bw()
+
+grid.arrange(topic_plot98, topic_plot02, nrow = 2)
+```
+As we can see from the output, the model successfully identified the 5 most important topics across all manifestos for both election years. In 1998, most topics included some notion of Europe, which makes sense considering the transformation processes within the EU during that time. In 2002, Europe still is a prevalent token, but also new tokens as ecological and society appear. However, the topics for both years are not as distinct and clear as I expected them to be. However this might be due to the fact that five parties with very distinct ideological preferences are included in the corpus. 
+
+For evaluating the states research question, I will now preprocess and run LDA models for the SPD and Grüne. The code applies the same preprocessing steps as before, making sure that punctuation, stopwords and less frequent or meaningful words are not influencing the analysis.
+```{r}
+spd98 <- corpus1998 %>%
+  corpus_subset(party == 41320) %>% 
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+    dfm_group(party)
+  
+spd02 <- corpus2002 %>%
+  corpus_subset(party == 41320) %>% 
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+  dfm_group(party)
+  
+lda98_spd <- LDA(spd98, 5)
+lda02_spd <- LDA(spd02, 5)
+
+
+topic_words98_spd <- tidy(lda98_spd, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+
+topic_words02_spd <- tidy(lda02_spd, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+```
+
+```{r}
+spd_98_plot <- topic_words98_spd %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() +
+  labs(title = "SPD 1998") +
+  theme_bw()
+
+spd_02_plot <- topic_words02_spd %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() +
+  labs(title = "SPD 2002") +
+  theme_bw()
+```
+
+
+```{r}
+grüne98 <- corpus1998 %>%
+  corpus_subset(party == 41113) %>% 
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen","grun", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+  dfm_group(party)
+  
+grüne02 <- corpus2002 %>%
+  corpus_subset(party == 41113) %>% 
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(pattern = stopwords("german")) %>%
+  tokens_wordstem(language = "de") %>%
+  tokens_remove(c("bündnis", "fdp", "f.d.p", "cdu", "csu", "spd", "pds", "grünen", "grun", "programm", "muß", "muss", "uns", "dass")) %>% 
+  dfm() %>% 
+  dfm_trim(min_termfreq = 5) %>% 
+  dfm_group(party)
+  
+lda98_grüne <- LDA(grüne98, 5)
+lda02_grüne <- LDA(grüne02, 5)
+
+
+topic_words98_grüne <- tidy(lda98_grüne, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+
+topic_words02_grüne <- tidy(lda02_grüne, matrix="beta") %>% 
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup() %>%
+  arrange(topic, -beta) 
+```
+
+```{r}
+grüne_98_plot <- topic_words98_grüne %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() +
+  labs(title = "Grüne 1998") +
+  theme_bw()
+
+grüne_02_plot <- topic_words02_grüne %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() +
+  labs(title = "Grüne 2002") +
+  theme_bw()
+```
+
+```{r}
+grid.arrange(spd_98_plot, grüne_98_plot, nrow = 2)
+```
+```{r}
+grid.arrange(spd_02_plot, grüne_02_plot)
+```
+
