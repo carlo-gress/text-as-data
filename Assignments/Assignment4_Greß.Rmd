@@ -1,5 +1,5 @@
 ---
-title: "Assignment_4_Topic_Modelling"
+title: "Assignment 4: Topic Modelling"
 author: "Carlo Greß"
 date: "2023-11-12"
 output:
@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # 0. Dependencies 
 
-```{r}
+```{r, warning=F}
 library(tidyverse)
 library(quanteda)
 library(manifestoR)
@@ -29,7 +29,7 @@ I am directly accessing the API and loading the manifesto corpus by restricting 
 
 Printing the my_corpus document already reveals that we are dealing with 10 distinct documents (here: 10 distinct party manifestos). This intuitively makes sense since there are five different parties that have been elected to the German Bundestag in 1998, and we are looking at two distinct elections, so there are two manifestos per party (== 10 in total).
 
-```{r}
+```{r, warning=F}
 mp_setapikey("manifesto_apikey.txt")
 
 my_corpus <- mp_corpus(countryname == "Germany" & edate > as.Date("1998-01-01") & edate < as.Date("2003-01-01"))
